@@ -3,10 +3,13 @@ from collections import Counter
 
 import torch
 from torch import nn, optim
+import numpy as np
+from tqdm import tqdm
 
 torch.manual_seed(1337)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 with open("bible_clean.txt", "r") as file:
     text = file.read()
@@ -19,53 +22,63 @@ counter = Counter(words)
 vocab = [word for word, _ in counter.most_common()]
 stoi = {word: i for i, word in enumerate(vocab)}
 
-y_train = torch.tensor([stoi[word] for word in words])
+y_train = torch.tensor([stoi[word] for word in words], device=device)
 
 vocab_size = len(vocab)
 d_embed = 128
-n_words_to_left_and_right = 2
-batch_size = 1024
+n_words_to_left_and_right = 5
+batch_size = 2**14
+n_batches = 2**12
+initial_lr = 1e-1
 
 W_target = nn.Embedding(vocab_size, d_embed, device=device)
 W_neighbor = nn.Embedding(vocab_size, d_embed, device=device)
 
 optimizer = optim.Adam([*W_target.parameters(), *W_neighbor.parameters()], lr=1e-2)
 
-for epoch in range(10000):
-    min_index = n_words_to_left_and_right
-    max_index = len(y_train) - n_words_to_left_and_right
+try:
+    for i in tqdm(range(n_batches)):
+        learning_rate = initial_lr * np.cos(torch.pi / 2 * i / n_batches)
+        optimizer.param_groups[0]["lr"] = learning_rate
 
-    target_i = torch.randint(min_index, max_index, (batch_size,))
+        min_index = n_words_to_left_and_right
+        max_index = len(y_train) - n_words_to_left_and_right
 
-    offsets = torch.cat(
-        [
-            torch.arange(-n_words_to_left_and_right, 0),
-            torch.arange(1, n_words_to_left_and_right + 1),
-        ]
-    )
+        target_i = torch.randint(min_index, max_index, (batch_size,), device=device)
 
-    neighbor_i = target_i[..., torch.newaxis] + offsets  # (B x N)
+        offsets = torch.cat(
+            [
+                torch.arange(-n_words_to_left_and_right, 0, device=device),
+                torch.arange(1, n_words_to_left_and_right + 1, device=device),
+            ]
+        )
 
-    target = y_train[target_i]  # (B)
-    neighbors = y_train[neighbor_i]
+        neighbor_i = target_i[..., torch.newaxis] + offsets  # (B x N)
 
-    target_embeddings = W_target(target)  # (B x d_embed)
+        target = y_train[target_i]  # (B)
+        neighbors = y_train[neighbor_i]
 
-    logits = (
-        target_embeddings @ W_neighbor.weight.T
-    )  # (B x d_embed) @ (d_embed x V) -> (B x V)
+        target_embeddings = W_target(target)  # (B x d_embed)
 
-    m = logits.max(dim=-1, keepdim=True).values
+        logits = (
+            target_embeddings @ W_neighbor.weight.T
+        )  # (B x d_embed) @ (d_embed x V) -> (B x V)
 
-    log_probs = logits - (
-        m + torch.log(torch.sum(torch.exp(logits - m), dim=-1, keepdim=True))
-    )  # (B, V)
+        m = logits.max(dim=-1, keepdim=True).values
 
-    log_target_probs = log_probs.gather(1, neighbors)  # (B x N)
-    loss = -log_target_probs.mean()
+        log_probs = logits - (
+            m + torch.log(torch.sum(torch.exp(logits - m), dim=-1, keepdim=True))
+        )  # (B, V)
 
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        log_target_probs = log_probs.gather(1, neighbors)  # (B x N)
+        loss = -log_target_probs.mean()
 
-    print(loss.item())
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # print(
+        #     f"loss: {loss.item()}  learning_rate: {learning_rate}  i: {i}/{n_batches}"
+        # )
+finally:
+    torch.save(W_target, "embeddings.pt")

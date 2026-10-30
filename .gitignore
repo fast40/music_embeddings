@@ -3,3 +3,4 @@ data/
 *.tfrecord
 *.jsonwav.tar.gz
 test.py
+word2vec/embeddings.pt
