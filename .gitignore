@@ -2,3 +2,4 @@
 data/
 *.tfrecord
 *.jsonwav.tar.gz
+test.py
