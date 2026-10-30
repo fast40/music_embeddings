@@ -1,0 +1,4 @@
+# NSynth dataset downloads
+data/
+*.tfrecord
+*.jsonwav.tar.gz
