@@ -6,6 +6,8 @@ from torch import nn, optim
 
 torch.manual_seed(1337)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 with open("bible_clean.txt", "r") as file:
     text = file.read()
 
@@ -24,8 +26,8 @@ d_embed = 128
 n_words_to_left_and_right = 2
 batch_size = 1024
 
-W_target = nn.Embedding(vocab_size, d_embed)
-W_neighbor = nn.Embedding(vocab_size, d_embed)
+W_target = nn.Embedding(vocab_size, d_embed, device=device)
+W_neighbor = nn.Embedding(vocab_size, d_embed, device=device)
 
 optimizer = optim.Adam([*W_target.parameters(), *W_neighbor.parameters()], lr=1e-2)
 
